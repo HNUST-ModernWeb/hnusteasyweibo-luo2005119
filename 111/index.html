@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mini微博</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <!-- Header -->
+        <header>
+            <div class="header-content">
+                <div class="logo" @click="currentView = 'home'">
+                    <span class="logo-icon">🔥</span> mini微博
+                </div>
+                <div class="user-actions">
+                    <button @click="goToCreatePost" class="btn-primary btn-create">发微博</button>
+                    <template v-if="currentUser">
+                        <span class="username" @click="viewProfile(currentUser)">{{ currentUser.username }}</span>
+                        <button @click="logout" class="btn-text">退出</button>
+                    </template>
+                    <template v-else>
+                        <button @click="showAuthModal = true; authTab = 'login'" class="btn-outline">登录</button>
+                    </template>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Home View -->
+            <div v-if="currentView === 'home'" class="view-home">
+                <div class="post-list">
+                    <div v-for="post in displayPosts" :key="post.id" class="post-item">
+                        <img :src="post.author.avatar || defaultAvatar" alt="avatar" class="avatar" @click="viewProfile(post.author)">
+                        <div class="post-content-area">
+                            <p class="post-text">{{ post.content }}</p>
+                            <div class="post-meta">
+                                <span class="time">{{ formatTime(post.createTime) }}</span>
+                                <div class="meta-actions">
+                                    <span class="comments-count">评论数（{{ post.comments.length }}）</span>
+                                    <button class="btn-text" @click="viewPostDetail(post)">查看详情</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="load-more" v-if="hasMorePosts">
+                        <button @click="loadMorePosts" class="btn-text">⟳ 查看更多...</button>
+                    </div>
+                    <div class="no-more" v-else-if="displayPosts.length > 0">
+                        <p class="no-more-text">没有更多动态了</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Create Post View -->
+            <div v-if="currentView === 'create'" class="view-create card">
+                <div class="header-action">
+                    <button @click="goBack" class="btn-icon-text">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                        返回
+                    </button>
+                    <h2>有什么新鲜事想分享？</h2>
+                </div>
+                <div class="post-input-area-large">
+                    <textarea v-model="newPostContent" placeholder="分享新鲜事..." maxlength="200" ref="postTextarea"></textarea>
+                    <div class="post-actions-bottom">
+                        <span class="char-count" :class="{ 'limit': newPostContent.length >= 190 }">{{ newPostContent.length }}/200</span>
+                        <button @click="createPost" class="btn-primary btn-large" :disabled="!newPostContent.trim()">发布动态</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Post Detail View -->
+            <div v-if="currentView === 'detail'" class="view-detail">
+                <div class="header-action">
+                    <button @click="goBack" class="btn-text">← 返回</button>
+                </div>
+                <div class="post-item detail-main-post">
+                    <img :src="currentPost.author.avatar || defaultAvatar" alt="avatar" class="avatar" @click="viewProfile(currentPost.author)">
+                    <div class="post-content-area">
+                        <p class="post-text-full">{{ currentPost.content }}</p>
+                        <div class="post-meta">
+                            <span class="time">{{ formatTime(currentPost.createTime) }}</span>
+                            <span class="comments-count">评论数（{{ currentPost.comments.length }}）</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="comments-section">
+                    <div v-for="comment in displayComments" :key="comment.id" class="comment-item">
+                        <img :src="comment.author.avatar || defaultAvatar" alt="avatar" class="avatar-small" @click="viewProfile(comment.author)">
+                        <div class="comment-content-area">
+                            <div class="comment-header">
+                                <span class="comment-author-name" @click="viewProfile(comment.author)">{{ comment.author.username }}</span>
+                            </div>
+                            <p class="comment-text">{{ comment.content }}</p>
+                            <span class="time comment-time">{{ formatTime(comment.createTime) }}</span>
+                        </div>
+                    </div>
+                    <div class="load-more" v-if="hasMoreComments">
+                        <button @click="loadMoreComments" class="btn-text">⟳ 查看更多...</button>
+                    </div>
+                </div>
+
+                <div class="comment-input-area">
+                    <input type="text" v-model="newCommentContent" placeholder="请输入..." maxlength="200">
+                    <button @click="createComment" class="btn-primary">评论</button>
+                </div>
+            </div>
+
+            <!-- User Profile View -->
+            <div v-if="currentView === 'profile'" class="view-profile">
+                <div class="header-action">
+                    <button @click="goBack" class="btn-text">← 返回</button>
+                </div>
+                <div class="profile-header">
+                    <img :src="viewingUser.avatar || defaultAvatar" alt="avatar" class="avatar-large">
+                    <div class="profile-info">
+                        <p>用户名： {{ viewingUser.username }}</p>
+                        <p>注册时间： {{ formatTime(viewingUser.registerTime, true) }}</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Auth Modal -->
+        <div v-if="showAuthModal" class="modal-overlay" @click.self="showAuthModal = false">
+            <div class="modal-content">
+                <div class="tabs">
+                    <div :class="['tab', { active: authTab === 'login' }]" @click="authTab = 'login'">登录Tab</div>
+                    <div :class="['tab', { active: authTab === 'register' }]" @click="authTab = 'register'">注册Tab</div>
+                </div>
+                
+                <div v-if="authTab === 'login'" class="form-container">
+                    <div class="form-group">
+                        <label>用户名：</label>
+                        <input type="text" v-model="loginForm.username">
+                    </div>
+                    <div class="form-group">
+                        <label>密码：</label>
+                        <input type="password" v-model="loginForm.password">
+                    </div>
+                    <div class="form-actions">
+                        <button @click="handleLogin" class="btn-primary btn-block">登录</button>
+                    </div>
+                </div>
+
+                <div v-if="authTab === 'register'" class="form-container">
+                    <div class="form-group">
+                        <label>头像：</label>
+                        <input type="file" @change="handleAvatarUpload" accept="image/*">
+                    </div>
+                    <div class="form-group">
+                        <label>用户名：</label>
+                        <input type="text" v-model="registerForm.username">
+                    </div>
+                    <div class="form-group">
+                        <label>密码：</label>
+                        <input type="password" v-model="registerForm.password">
+                    </div>
+                    <div class="form-group">
+                        <label>确认密码：</label>
+                        <input type="password" v-model="registerForm.confirmPassword">
+                    </div>
+                    <div class="form-actions">
+                        <button @click="handleRegister" class="btn-primary btn-block">注册</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
